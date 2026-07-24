@@ -161,9 +161,14 @@ export default function Home() {
       <Head>
         <title>杨宇浩 & 王宁 · 婚礼筹备</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+        <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <meta name="theme-color" content="#F4EFE3" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,500;1,600&family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;1,500;1,600&family=Noto+Serif+SC:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </Head>
@@ -258,8 +263,7 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
       </div>
 
       <div className="names-block">
-        <div className="names">杨宇浩 <span className="amp">&amp;</span> 王宁</div>
-        <div className="date-line"><b>2026 · 09 · 12</b></div>
+        <img src="/logo-mark.png" alt="杨宇浩 & 王宁" className="brand-logo" />
         <div className="lunar-line">农历 八月初二 · 周六 · 悉尼</div>
       </div>
 

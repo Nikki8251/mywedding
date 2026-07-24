@@ -76,6 +76,7 @@ h1,h2,h3{font-family:'Noto Serif SC', serif; margin:0; color:var(--ink);}
 .hero-quote::before,.hero-quote::after{content:'"'; font-size:.7em; opacity:.8;}
 
 .names-block{text-align:center; padding:22px 10px 6px;}
+.brand-logo{height:54px; width:auto; display:inline-block;}
 .names{
   font-size:28px; font-weight:700; letter-spacing:2px;
   display:flex; align-items:center; justify-content:center; gap:14px;
