@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
-import { CATS, ITEMS, CEREMONY, PARENTS, MANAGERS, SEATING } from '../lib/data';
+import { CATS, ITEMS, CEREMONY, PARENTS, MANAGERS, SEATING as DEFAULT_SEATING } from '../lib/data';
 
 const STATUS_ORDER = ['todo', 'doing', 'done'];
 const SIDE_LABEL = { groom: '新郎方', bride: '新娘方', both: '双方共同' };
@@ -19,12 +19,15 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState('家人');
   const [statusStore, setStatusStore] = useState({}); // { cat: { itemId: {status, by, at} } }
   const [guests, setGuests] = useState([]);
+  const [seating, setSeating] = useState(DEFAULT_SEATING);
   const [daysLeft, setDaysLeft] = useState(null);
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
   const guestsRef = useRef(guests);
+  const seatingRef = useRef(seating);
   const statusRef = useRef(statusStore);
   guestsRef.current = guests;
+  seatingRef.current = seating;
   statusRef.current = statusStore;
 
   const showToast = (msg) => {
@@ -58,14 +61,78 @@ export default function Home() {
     }
   };
 
+  const loadSeating = async () => {
+    try {
+      const r = await fetch('/api/seating');
+      const j = await r.json();
+      setSeating(j.tables || DEFAULT_SEATING);
+    } catch {
+      /* keep current seating on failure */
+    }
+  };
+
+  const saveSeating = async (tables) => {
+    setSeating(tables);
+    try {
+      await fetch('/api/seating', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables }),
+      });
+    } catch {
+      showToast('同步失败，请检查网络');
+    }
+  };
+
+  const addGuestToTable = (tableId, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const tables = seatingRef.current.map((t) =>
+      t.id === tableId ? { ...t, guests: [...t.guests, trimmed] } : t
+    );
+    saveSeating(tables);
+    showToast('已添加，已同步给全家');
+  };
+
+  const removeGuestFromTable = (tableId, idx) => {
+    const tables = seatingRef.current.map((t) =>
+      t.id === tableId ? { ...t, guests: t.guests.filter((_, i) => i !== idx) } : t
+    );
+    saveSeating(tables);
+  };
+
+  const moveGuestToTable = (fromTableId, idx, toTableId) => {
+    if (fromTableId === toTableId) return;
+    const from = seatingRef.current.find((t) => t.id === fromTableId);
+    if (!from) return;
+    const name = from.guests[idx];
+    const tables = seatingRef.current.map((t) => {
+      if (t.id === fromTableId) return { ...t, guests: t.guests.filter((_, i) => i !== idx) };
+      if (t.id === toTableId) return { ...t, guests: [...t.guests, name] };
+      return t;
+    });
+    saveSeating(tables);
+    showToast(`已移到 ${seatingRef.current.find((t) => t.id === toTableId)?.label || ''}`);
+  };
+
+  const addTable = (label, capacity) => {
+    const tables = [
+      ...seatingRef.current,
+      { id: 't' + Date.now(), label: label || `${seatingRef.current.length + 1}号桌`, capacity: capacity || '', guests: [] },
+    ];
+    saveSeating(tables);
+  };
+
   useEffect(() => {
     setDaysLeft(computeDaysLeft());
     loadAllStatus();
     loadGuests();
+    loadSeating();
     const cd = setInterval(() => setDaysLeft(computeDaysLeft()), 60000);
     const poll = setInterval(() => {
       loadAllStatus();
       loadGuests();
+      loadSeating();
     }, 6000);
     return () => {
       clearInterval(cd);
@@ -206,7 +273,16 @@ export default function Home() {
         </section>
 
         <section className={`screen ${screen === 'guests' ? 'active' : ''}`}>
-          <GuestsScreen guests={guests} addGuest={addGuest} deleteGuest={deleteGuest} />
+          <GuestsScreen
+            guests={guests}
+            addGuest={addGuest}
+            deleteGuest={deleteGuest}
+            seating={seating}
+            addGuestToTable={addGuestToTable}
+            removeGuestFromTable={removeGuestFromTable}
+            moveGuestToTable={moveGuestToTable}
+            addTable={addTable}
+          />
         </section>
       </div>
 
@@ -506,19 +582,26 @@ function FlowScreen({ flowTab, setFlowTab }) {
 }
 
 /* ============================= GUESTS ============================= */
-function GuestsScreen({ guests, addGuest, deleteGuest }) {
+function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable }) {
   const [tab, setTab] = useState('list');
   const [name, setName] = useState('');
   const [side, setSide] = useState('bride');
   const [count, setCount] = useState(1);
   const [note, setNote] = useState('');
+  const [newTableLabel, setNewTableLabel] = useState('');
 
   const totalPeople = guests.reduce((a, g) => a + Number(g.count || 0), 0);
-  const seatingTotal = SEATING.reduce((a, t) => a + t.guests.length, 0);
+  const seatingTotal = seating.reduce((a, t) => a + t.guests.length, 0);
 
   const submit = () => {
     addGuest({ name, side, count, note });
     setName(''); setNote(''); setCount(1);
+  };
+
+  const submitNewTable = () => {
+    if (!newTableLabel.trim()) return;
+    addTable(newTableLabel.trim(), '');
+    setNewTableLabel('');
   };
 
   return (
@@ -584,26 +667,83 @@ function GuestsScreen({ guests, addGuest, deleteGuest }) {
       {tab === 'seating' && (
         <>
           <div className="guest-summary">
-            <div className="gs-card"><div className="gs-num">{SEATING.length}</div><div className="gs-label">桌数</div></div>
+            <div className="gs-card"><div className="gs-num">{seating.length}</div><div className="gs-label">桌数</div></div>
             <div className="gs-card"><div className="gs-num">{seatingTotal}</div><div className="gs-label">已排座位</div></div>
           </div>
           <div className="seating-list">
-            {SEATING.map((t) => (
-              <div className="table-card" key={t.id}>
-                <div className="table-card-top">
-                  <span className="table-name">{t.label}</span>
-                  <span className="table-cap">{t.capacity} · {t.guests.length} 人</span>
-                </div>
-                <div className="table-guests">
-                  {t.guests.map((g, i) => (
-                    <span className="guest-chip" key={i}>{g}</span>
-                  ))}
-                </div>
-              </div>
+            {seating.map((t) => (
+              <TableCard
+                key={t.id}
+                table={t}
+                allTables={seating}
+                onAddGuest={(name) => addGuestToTable(t.id, name)}
+                onRemoveGuest={(idx) => removeGuestFromTable(t.id, idx)}
+                onMoveGuest={(idx, toId) => moveGuestToTable(t.id, idx, toId)}
+              />
             ))}
+          </div>
+          <div className="add-table-form">
+            <input
+              placeholder="新增一桌，比如「6号桌」"
+              value={newTableLabel}
+              onChange={(e) => setNewTableLabel(e.target.value)}
+            />
+            <button onClick={submitNewTable}>+ 新增</button>
           </div>
         </>
       )}
     </>
+  );
+}
+
+function TableCard({ table, allTables, onAddGuest, onRemoveGuest, onMoveGuest }) {
+  const [openIdx, setOpenIdx] = useState(null);
+  const [newName, setNewName] = useState('');
+
+  const submit = () => {
+    onAddGuest(newName);
+    setNewName('');
+  };
+
+  return (
+    <div className="table-card">
+      <div className="table-card-top">
+        <span className="table-name">{table.label}</span>
+        <span className="table-cap">{table.capacity ? `${table.capacity} · ` : ''}{table.guests.length} 人</span>
+      </div>
+      <div className="table-guests">
+        {table.guests.map((g, i) => (
+          <div className="guest-chip-wrap" key={i}>
+            <span className="guest-chip editable" onClick={() => setOpenIdx(openIdx === i ? null : i)}>
+              {g}
+              <button className="chip-del" onClick={(e) => { e.stopPropagation(); onRemoveGuest(i); }}>×</button>
+            </span>
+            {openIdx === i && (
+              <div className="move-menu">
+                <div className="move-menu-title">移到：</div>
+                {allTables.filter((t) => t.id !== table.id).map((t) => (
+                  <div
+                    key={t.id}
+                    className="move-menu-item"
+                    onClick={() => { onMoveGuest(i, t.id); setOpenIdx(null); }}
+                  >
+                    {t.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="table-add-row">
+        <input
+          placeholder="+ 加一位到这桌"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        />
+        <button onClick={submit}>添加</button>
+      </div>
+    </div>
   );
 }
