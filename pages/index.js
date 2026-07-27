@@ -218,6 +218,21 @@ export default function Home() {
     }
   };
 
+  const assignPendingToTable = async (guest, tableId) => {
+    const parts = [];
+    if (Number(guest.count) > 1) parts.push(`${guest.count}人`);
+    if (guest.note) parts.push(guest.note);
+    const chip = guest.name + (parts.length ? `（${parts.join('、')}）` : '');
+
+    const tables = seatingRef.current.map((t) =>
+      t.id === tableId ? { ...t, guests: [...t.guests, chip] } : t
+    );
+    await saveSeating(tables);
+    await deleteGuest(guest.id);
+    const table = tables.find((t) => t.id === tableId);
+    showToast(`已把 ${guest.name} 分到 ${table ? table.label : ''}`);
+  };
+
   const goScreen = (name) => {
     setScreen(name);
     window.scrollTo(0, 0);
@@ -282,6 +297,7 @@ export default function Home() {
             removeGuestFromTable={removeGuestFromTable}
             moveGuestToTable={moveGuestToTable}
             addTable={addTable}
+            assignPendingToTable={assignPendingToTable}
           />
         </section>
       </div>
@@ -420,7 +436,7 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
         <div className="quick-card" onClick={() => goScreen('guests')}>
           <svg className="qc-icon" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8.5" r="3" stroke="currentColor" strokeWidth="1.5" /><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
           <div className="qc-title">宾客清单</div>
-          <div className="qc-sub">{guests.length ? `已登记 ${totalGuestPeople} 人` : '共同记录到场亲友'}</div>
+          <div className="qc-sub">{guests.length ? `待定 ${totalGuestPeople} 人` : '桌位安排 · 待定名单'}</div>
         </div>
       </div>
 
@@ -582,13 +598,14 @@ function FlowScreen({ flowTab, setFlowTab }) {
 }
 
 /* ============================= GUESTS ============================= */
-function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable }) {
+function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable, assignPendingToTable }) {
   const [tab, setTab] = useState('list');
   const [name, setName] = useState('');
   const [side, setSide] = useState('bride');
   const [count, setCount] = useState(1);
   const [note, setNote] = useState('');
   const [newTableLabel, setNewTableLabel] = useState('');
+  const [assignOpenId, setAssignOpenId] = useState(null);
 
   const totalPeople = guests.reduce((a, g) => a + Number(g.count || 0), 0);
   const seatingTotal = seating.reduce((a, t) => a + t.guests.length, 0);
@@ -608,23 +625,23 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
     <>
       <div className="topbar">
         <h1>宾客清单</h1>
-        <div className="sub">全家一起记录到场亲友，实时同步</div>
+        <div className="sub">待定名单 + 桌位安排，全家实时同步</div>
       </div>
 
       <div className="flow-tabs">
-        <div className={`flow-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>宾客登记</div>
+        <div className={`flow-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>待定名单</div>
         <div className={`flow-tab ${tab === 'seating' ? 'active' : ''}`} onClick={() => setTab('seating')}>桌位安排</div>
       </div>
 
       {tab === 'list' && (
         <>
           <div className="guest-summary">
-            <div className="gs-card"><div className="gs-num">{totalPeople}</div><div className="gs-label">预计人数</div></div>
-            <div className="gs-card"><div className="gs-num">{guests.length}</div><div className="gs-label">登记条目</div></div>
+            <div className="gs-card"><div className="gs-num">{totalPeople}</div><div className="gs-label">待定人数</div></div>
+            <div className="gs-card"><div className="gs-num">{guests.length}</div><div className="gs-label">待定条目</div></div>
           </div>
 
           <div className="guest-form">
-            <div className="guest-form-title">+ 添加宾客</div>
+            <div className="guest-form-title">+ 登记待定宾客</div>
             <div className="gf-row">
               <input placeholder="姓名 / 家庭名称" value={name} onChange={(e) => setName(e.target.value)} />
               <select value={side} onChange={(e) => setSide(e.target.value)}>
@@ -637,14 +654,14 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
               <input type="number" min="1" placeholder="人数" value={count} onChange={(e) => setCount(e.target.value)} style={{ maxWidth: 90 }} />
               <input placeholder="备注（如：需要素食 / 带小孩）" value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
-            <button className="gf-submit" onClick={submit}>添加到宾客清单</button>
+            <button className="gf-submit" onClick={submit}>加入待定名单</button>
           </div>
 
           <div className="guest-list">
             {!guests.length && (
               <div className="empty-state">
                 <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="9" r="3.4" stroke="currentColor" strokeWidth="1.4" /><path d="M5 20c0-3.8 3.1-6.4 7-6.4s7 2.6 7 6.4" stroke="currentColor" strokeWidth="1.4" /></svg>
-                <div>还没有宾客记录，添加第一位吧</div>
+                <div>暂无待定宾客 —— 桌位还没定的人，先登记在这里</div>
               </div>
             )}
             {guests.slice().reverse().map((g) => (
@@ -655,9 +672,28 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
                   <div className="guest-tags">{SIDE_LABEL[g.side] || ''} · {g.count} 人{g.by ? ` · ${g.by} 添加` : ''}</div>
                   {g.note && <div className="guest-note">{g.note}</div>}
                 </div>
-                <button className="guest-del" onClick={() => deleteGuest(g.id)}>
-                  <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-                </button>
+                <div className="guest-row-actions">
+                  <div className="guest-chip-wrap">
+                    <button className="guest-assign" onClick={() => setAssignOpenId(assignOpenId === g.id ? null : g.id)}>分桌位</button>
+                    {assignOpenId === g.id && (
+                      <div className="move-menu">
+                        <div className="move-menu-title">分到：</div>
+                        {seating.map((t) => (
+                          <div
+                            key={t.id}
+                            className="move-menu-item"
+                            onClick={() => { assignPendingToTable(g, t.id); setAssignOpenId(null); }}
+                          >
+                            {t.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button className="guest-del" onClick={() => deleteGuest(g.id)}>
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
