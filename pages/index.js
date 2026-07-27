@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
-import { CATS, ITEMS, CEREMONY, PARENTS, MANAGERS } from '../lib/data';
+import { CATS, ITEMS, CEREMONY, PARENTS, MANAGERS, SEATING } from '../lib/data';
 
 const STATUS_ORDER = ['todo', 'doing', 'done'];
 const SIDE_LABEL = { groom: '新郎方', bride: '新娘方', both: '双方共同' };
@@ -507,12 +507,14 @@ function FlowScreen({ flowTab, setFlowTab }) {
 
 /* ============================= GUESTS ============================= */
 function GuestsScreen({ guests, addGuest, deleteGuest }) {
+  const [tab, setTab] = useState('list');
   const [name, setName] = useState('');
   const [side, setSide] = useState('bride');
   const [count, setCount] = useState(1);
   const [note, setNote] = useState('');
 
   const totalPeople = guests.reduce((a, g) => a + Number(g.count || 0), 0);
+  const seatingTotal = SEATING.reduce((a, t) => a + t.guests.length, 0);
 
   const submit = () => {
     addGuest({ name, side, count, note });
@@ -526,49 +528,82 @@ function GuestsScreen({ guests, addGuest, deleteGuest }) {
         <div className="sub">全家一起记录到场亲友，实时同步</div>
       </div>
 
-      <div className="guest-summary">
-        <div className="gs-card"><div className="gs-num">{totalPeople}</div><div className="gs-label">预计人数</div></div>
-        <div className="gs-card"><div className="gs-num">{guests.length}</div><div className="gs-label">登记条目</div></div>
+      <div className="flow-tabs">
+        <div className={`flow-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>宾客登记</div>
+        <div className={`flow-tab ${tab === 'seating' ? 'active' : ''}`} onClick={() => setTab('seating')}>桌位安排</div>
       </div>
 
-      <div className="guest-form">
-        <div className="guest-form-title">+ 添加宾客</div>
-        <div className="gf-row">
-          <input placeholder="姓名 / 家庭名称" value={name} onChange={(e) => setName(e.target.value)} />
-          <select value={side} onChange={(e) => setSide(e.target.value)}>
-            <option value="groom">新郎方</option>
-            <option value="bride">新娘方</option>
-            <option value="both">双方共同</option>
-          </select>
-        </div>
-        <div className="gf-row">
-          <input type="number" min="1" placeholder="人数" value={count} onChange={(e) => setCount(e.target.value)} style={{ maxWidth: 90 }} />
-          <input placeholder="备注（如：需要素食 / 带小孩）" value={note} onChange={(e) => setNote(e.target.value)} />
-        </div>
-        <button className="gf-submit" onClick={submit}>添加到宾客清单</button>
-      </div>
-
-      <div className="guest-list">
-        {!guests.length && (
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="9" r="3.4" stroke="currentColor" strokeWidth="1.4" /><path d="M5 20c0-3.8 3.1-6.4 7-6.4s7 2.6 7 6.4" stroke="currentColor" strokeWidth="1.4" /></svg>
-            <div>还没有宾客记录，添加第一位吧</div>
+      {tab === 'list' && (
+        <>
+          <div className="guest-summary">
+            <div className="gs-card"><div className="gs-num">{totalPeople}</div><div className="gs-label">预计人数</div></div>
+            <div className="gs-card"><div className="gs-num">{guests.length}</div><div className="gs-label">登记条目</div></div>
           </div>
-        )}
-        {guests.slice().reverse().map((g) => (
-          <div className="guest-row" key={g.id}>
-            <div className={`guest-side ${g.side}`} />
-            <div className="guest-info">
-              <div className="guest-name">{g.name}</div>
-              <div className="guest-tags">{SIDE_LABEL[g.side] || ''} · {g.count} 人{g.by ? ` · ${g.by} 添加` : ''}</div>
-              {g.note && <div className="guest-note">{g.note}</div>}
+
+          <div className="guest-form">
+            <div className="guest-form-title">+ 添加宾客</div>
+            <div className="gf-row">
+              <input placeholder="姓名 / 家庭名称" value={name} onChange={(e) => setName(e.target.value)} />
+              <select value={side} onChange={(e) => setSide(e.target.value)}>
+                <option value="groom">新郎方</option>
+                <option value="bride">新娘方</option>
+                <option value="both">双方共同</option>
+              </select>
             </div>
-            <button className="guest-del" onClick={() => deleteGuest(g.id)}>
-              <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-            </button>
+            <div className="gf-row">
+              <input type="number" min="1" placeholder="人数" value={count} onChange={(e) => setCount(e.target.value)} style={{ maxWidth: 90 }} />
+              <input placeholder="备注（如：需要素食 / 带小孩）" value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <button className="gf-submit" onClick={submit}>添加到宾客清单</button>
           </div>
-        ))}
-      </div>
+
+          <div className="guest-list">
+            {!guests.length && (
+              <div className="empty-state">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="9" r="3.4" stroke="currentColor" strokeWidth="1.4" /><path d="M5 20c0-3.8 3.1-6.4 7-6.4s7 2.6 7 6.4" stroke="currentColor" strokeWidth="1.4" /></svg>
+                <div>还没有宾客记录，添加第一位吧</div>
+              </div>
+            )}
+            {guests.slice().reverse().map((g) => (
+              <div className="guest-row" key={g.id}>
+                <div className={`guest-side ${g.side}`} />
+                <div className="guest-info">
+                  <div className="guest-name">{g.name}</div>
+                  <div className="guest-tags">{SIDE_LABEL[g.side] || ''} · {g.count} 人{g.by ? ` · ${g.by} 添加` : ''}</div>
+                  {g.note && <div className="guest-note">{g.note}</div>}
+                </div>
+                <button className="guest-del" onClick={() => deleteGuest(g.id)}>
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'seating' && (
+        <>
+          <div className="guest-summary">
+            <div className="gs-card"><div className="gs-num">{SEATING.length}</div><div className="gs-label">桌数</div></div>
+            <div className="gs-card"><div className="gs-num">{seatingTotal}</div><div className="gs-label">已排座位</div></div>
+          </div>
+          <div className="seating-list">
+            {SEATING.map((t) => (
+              <div className="table-card" key={t.id}>
+                <div className="table-card-top">
+                  <span className="table-name">{t.label}</span>
+                  <span className="table-cap">{t.capacity} · {t.guests.length} 人</span>
+                </div>
+                <div className="table-guests">
+                  {t.guests.map((g, i) => (
+                    <span className="guest-chip" key={i}>{g}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </>
   );
 }
