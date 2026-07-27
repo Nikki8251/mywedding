@@ -599,7 +599,7 @@ function FlowScreen({ flowTab, setFlowTab }) {
 
 /* ============================= GUESTS ============================= */
 function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable, assignPendingToTable }) {
-  const [tab, setTab] = useState('list');
+  const [tab, setTab] = useState('seating');
   const [name, setName] = useState('');
   const [side, setSide] = useState('bride');
   const [count, setCount] = useState(1);
@@ -629,8 +629,8 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
       </div>
 
       <div className="flow-tabs">
-        <div className={`flow-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>待定名单</div>
         <div className={`flow-tab ${tab === 'seating' ? 'active' : ''}`} onClick={() => setTab('seating')}>桌位安排</div>
+        <div className={`flow-tab ${tab === 'list' ? 'active' : ''}`} onClick={() => setTab('list')}>待定名单</div>
       </div>
 
       {tab === 'list' && (
