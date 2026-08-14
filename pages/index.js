@@ -12,6 +12,7 @@ import {
 const STATUS_ORDER = ['todo', 'doing', 'done'];
 const SIDE_LABEL = { groom: '新郎方', bride: '新娘方', both: '双方共同' };
 const DEFAULT_FLOW = { ceremony: DEFAULT_CEREMONY, parents: DEFAULT_PARENTS, managers: DEFAULT_MANAGERS };
+const USER_OPTIONS = ['家人', 'Nikki', 'yh'];
 
 function computeDaysLeft() {
   const target = new Date('2026-09-12T00:00:00+10:00');
@@ -222,6 +223,16 @@ export default function Home() {
     showToast('已删除');
   };
 
+  const updateItem = (itemId, patch) => {
+    saveItems(itemsRef.current.map((i) => (i.id === itemId ? { ...i, ...patch } : i)));
+    showToast('已修改，已同步给全家');
+  };
+
+  const resetItems = () => {
+    saveItems(DEFAULT_ITEMS);
+    showToast('已恢复默认清单');
+  };
+
   const saveFlow = async (next) => {
     setFlow(next);
     try {
@@ -246,6 +257,11 @@ export default function Home() {
     const next = { ...flowRef.current, [section]: flowRef.current[section].filter((e) => e.id !== id) };
     saveFlow(next);
     showToast('已删除');
+  };
+
+  const resetFlow = () => {
+    saveFlow(DEFAULT_FLOW);
+    showToast('已恢复默认流程');
   };
 
   useEffect(() => {
@@ -412,6 +428,8 @@ export default function Home() {
             cycleStatus={cycleStatus}
             addItem={addItem}
             deleteItem={deleteItem}
+            updateItem={updateItem}
+            resetItems={resetItems}
           />
         </section>
 
@@ -422,6 +440,7 @@ export default function Home() {
             flow={flow}
             addFlowEntry={addFlowEntry}
             deleteFlowEntry={deleteFlowEntry}
+            resetFlow={resetFlow}
           />
         </section>
 
@@ -508,12 +527,9 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
 
       <div className="you-are">
         你是{' '}
-        <input
-          placeholder="家人"
-          maxLength={8}
-          defaultValue={currentUser === '家人' ? '' : currentUser}
-          onBlur={(e) => setCurrentUser(e.target.value.trim() || '家人')}
-        />{' '}
+        <select value={currentUser} onChange={(e) => setCurrentUser(e.target.value)}>
+          {USER_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+        </select>{' '}
         · 打钩会记录是谁完成的
       </div>
 
@@ -583,13 +599,18 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
 }
 
 /* ============================= CHECKLIST ============================= */
-function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCurrentOwner, catStats, effectiveStatus, effectiveBy, cycleStatus, addItem, deleteItem }) {
+function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCurrentOwner, catStats, effectiveStatus, effectiveBy, cycleStatus, addItem, deleteItem, updateItem, resetItems }) {
   const s = catStats(currentCat);
   const owners = useMemo(() => {
     const set = new Set();
     items.filter((i) => i.cat === currentCat).forEach((i) => i.owner && set.add(i.owner));
     return Array.from(set);
   }, [items, currentCat]);
+  const allOwners = useMemo(() => {
+    const set = new Set();
+    items.forEach((i) => i.owner && set.add(i.owner));
+    return Array.from(set);
+  }, [items]);
 
   let list = items.filter((i) => i.cat === currentCat);
   if (currentOwner !== 'all') list = list.filter((i) => i.owner === currentOwner);
@@ -604,7 +625,10 @@ function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCu
   return (
     <>
       <div className="topbar">
-        <h1>筹备清单</h1>
+        <div className="topbar-row">
+          <h1>筹备清单</h1>
+          <span className="reset-link" onClick={resetItems}>恢复默认</span>
+        </div>
         <div className="sub">当前查看：{currentCat}</div>
       </div>
 
@@ -639,7 +663,16 @@ function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCu
           <div className="group-block" key={sub}>
             <div className="group-title">{sub}</div>
             {list.filter((i) => i.sub === sub).map((item) => (
-              <ItemRow key={item.id} item={item} status={effectiveStatus(item)} by={effectiveBy(item)} onClick={() => cycleStatus(item)} onDelete={() => deleteItem(item.id)} />
+              <ItemRow
+                key={item.id}
+                item={item}
+                status={effectiveStatus(item)}
+                by={effectiveBy(item)}
+                owners={allOwners}
+                onClick={() => cycleStatus(item)}
+                onDelete={() => deleteItem(item.id)}
+                onSave={(patch) => updateItem(item.id, patch)}
+              />
             ))}
           </div>
         ))}
@@ -652,7 +685,60 @@ function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCu
   );
 }
 
-function ItemRow({ item, status, by, onClick, onDelete }) {
+function ItemRow({ item, status, by, owners, onClick, onDelete, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [owner, setOwner] = useState(item.owner || '');
+  const [sub, setSub] = useState(item.sub || '');
+  const [deadline, setDeadline] = useState(item.deadline || '');
+  const [priority, setPriority] = useState(item.priority || '必要');
+  const [note, setNote] = useState(item.note || '');
+
+  const startEdit = (e) => {
+    e.stopPropagation();
+    setOwner(item.owner || '');
+    setSub(item.sub || '');
+    setDeadline(item.deadline || '');
+    setPriority(item.priority || '必要');
+    setNote(item.note || '');
+    setEditing(true);
+  };
+
+  const save = (e) => {
+    e.stopPropagation();
+    onSave({ owner: owner.trim(), sub: sub.trim() || item.sub, deadline: deadline.trim(), priority, note: note.trim() });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="item-row item-row-editing" onClick={(e) => e.stopPropagation()}>
+        <div className="item-main">
+          <div className="item-name" style={{ marginBottom: 8 }}>{item.name}</div>
+          <div className="gf-row">
+            <input placeholder="负责人" list="row-owners" value={owner} onChange={(e) => setOwner(e.target.value)} />
+            <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+              <option value="必要">必要</option>
+              <option value="重要">重要</option>
+              <option value="非必要">非必要</option>
+            </select>
+          </div>
+          <datalist id="row-owners">{owners.map((o) => <option key={o} value={o} />)}</datalist>
+          <div className="gf-row">
+            <input placeholder="分组" value={sub} onChange={(e) => setSub(e.target.value)} />
+            <input placeholder="截止时间" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          </div>
+          <div className="gf-row">
+            <input placeholder="备注" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <div className="gf-row gf-row-actions">
+            <button className="gf-cancel" onClick={(e) => { e.stopPropagation(); setEditing(false); }}>取消</button>
+            <button className="gf-submit" onClick={save}>保存</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`item-row ${status === 'done' ? 'done' : ''} ${status === 'doing' ? 'doing' : ''}`} onClick={onClick}>
       <div className="check-box">
@@ -661,9 +747,14 @@ function ItemRow({ item, status, by, onClick, onDelete }) {
       <div className="item-main">
         <div className="item-top-row">
           <div className="item-name">{item.name}</div>
-          <button className="row-del" onClick={(e) => { e.stopPropagation(); onDelete(); }} aria-label="删除">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
-          </button>
+          <div className="item-row-actions">
+            <button className="row-edit" onClick={startEdit} aria-label="编辑">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 20l1-4.5L15.5 5 19 8.5 8.5 19 4 20z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" /></svg>
+            </button>
+            <button className="row-del" onClick={(e) => { e.stopPropagation(); onDelete(); }} aria-label="删除">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            </button>
+          </div>
         </div>
         <div className="item-meta">
           <span className={`tag pri-${item.priority}`}>{item.priority}</span>
@@ -737,7 +828,7 @@ function AddItemPanel({ cat, subs, onAdd }) {
 }
 
 /* ============================= FLOW ============================= */
-function FlowScreen({ flowTab, setFlowTab, flow, addFlowEntry, deleteFlowEntry }) {
+function FlowScreen({ flowTab, setFlowTab, flow, addFlowEntry, deleteFlowEntry, resetFlow }) {
   const { ceremony, parents, managers } = flow;
   const ceremonyGroups = useMemo(() => groupSequential(ceremony, 'cat'), [ceremony]);
   const parentGroups = useMemo(() => groupSequential(parents, 'role'), [parents]);
@@ -747,7 +838,10 @@ function FlowScreen({ flowTab, setFlowTab, flow, addFlowEntry, deleteFlowEntry }
   return (
     <>
       <div className="topbar">
-        <h1>流程手册</h1>
+        <div className="topbar-row">
+          <h1>流程手册</h1>
+          <span className="reset-link" onClick={resetFlow}>恢复默认</span>
+        </div>
       </div>
 
       <div className="flow-tabs">
