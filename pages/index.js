@@ -12,7 +12,7 @@ import {
 const STATUS_ORDER = ['todo', 'doing', 'done'];
 const SIDE_LABEL = { groom: '新郎方', bride: '新娘方', both: '双方共同' };
 const DEFAULT_FLOW = { ceremony: DEFAULT_CEREMONY, parents: DEFAULT_PARENTS, managers: DEFAULT_MANAGERS };
-const USER_OPTIONS = ['家人', 'Nikki', 'yh'];
+const USER_OPTIONS = ['父母', 'Nikki', 'yh'];
 
 function computeDaysLeft() {
   const target = new Date('2026-09-12T00:00:00+10:00');
@@ -44,7 +44,7 @@ export default function Home() {
   const [currentCat, setCurrentCat] = useState(CATS[0]);
   const [currentOwner, setCurrentOwner] = useState('all');
   const [flowTab, setFlowTab] = useState('ceremony');
-  const [currentUser, setCurrentUser] = useState('家人');
+  const [currentUser, setCurrentUser] = useState('父母');
   const [statusStore, setStatusStore] = useState({}); // { cat: { itemId: {status, by, at} } }
   const [items, setItems] = useState(DEFAULT_ITEMS);
   const [flow, setFlow] = useState(DEFAULT_FLOW); // { ceremony, parents, managers }
@@ -303,7 +303,7 @@ export default function Home() {
     const idx = STATUS_ORDER.indexOf(cur) === -1 ? 0 : STATUS_ORDER.indexOf(cur);
     const next = STATUS_ORDER[(idx + 1) % STATUS_ORDER.length];
     const catMap = { ...(statusStore[item.cat] || {}) };
-    catMap[item.id] = { status: next, by: currentUser || '家人', at: Date.now() };
+    catMap[item.id] = { status: next, by: currentUser || '父母', at: Date.now() };
     const updated = { ...statusStore, [item.cat]: catMap };
     setStatusStore(updated);
     try {
@@ -332,7 +332,7 @@ export default function Home() {
         side: form.side,
         count: Math.max(1, parseInt(form.count) || 1),
         note: form.note.trim(),
-        by: currentUser || '家人',
+        by: currentUser || '父母',
         at: Date.now(),
       },
     ];
@@ -529,8 +529,7 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
         你是{' '}
         <select value={currentUser} onChange={(e) => setCurrentUser(e.target.value)}>
           {USER_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-        </select>{' '}
-        · 打钩会记录是谁完成的
+        </select>
       </div>
 
       <div className="section-title">
