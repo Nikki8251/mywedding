@@ -1,14 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Head from 'next/head';
-import { CATS, ITEMS, CEREMONY, PARENTS, MANAGERS, SEATING as DEFAULT_SEATING } from '../lib/data';
+import {
+  CATS,
+  ITEMS as DEFAULT_ITEMS,
+  CEREMONY as DEFAULT_CEREMONY,
+  PARENTS as DEFAULT_PARENTS,
+  MANAGERS as DEFAULT_MANAGERS,
+  SEATING as DEFAULT_SEATING,
+} from '../lib/data';
 
 const STATUS_ORDER = ['todo', 'doing', 'done'];
 const SIDE_LABEL = { groom: '新郎方', bride: '新娘方', both: '双方共同' };
+const DEFAULT_FLOW = { ceremony: DEFAULT_CEREMONY, parents: DEFAULT_PARENTS, managers: DEFAULT_MANAGERS };
 
 function computeDaysLeft() {
   const target = new Date('2026-09-12T00:00:00+10:00');
   const now = new Date();
   return Math.ceil((target - now) / 86400000);
+}
+
+// Groups a list the way the original spreadsheet did: a group label is only
+// written on the FIRST row of its section, every row after it (cat/role is
+// null) belongs to that same running section — not to a global "all rows
+// that happen to share this exact label" bucket. This keeps e.g. 开场...退场
+// together as one 仪式环节 section instead of splitting across the sheet.
+function groupSequential(list, labelKey) {
+  const groups = [];
+  let current = null;
+  list.forEach((item) => {
+    const label = item[labelKey] || (current ? current.label : null);
+    if (!current || current.label !== label) {
+      current = { label, items: [] };
+      groups.push(current);
+    }
+    current.items.push(item);
+  });
+  return groups;
 }
 
 export default function Home() {
@@ -18,6 +45,8 @@ export default function Home() {
   const [flowTab, setFlowTab] = useState('ceremony');
   const [currentUser, setCurrentUser] = useState('家人');
   const [statusStore, setStatusStore] = useState({}); // { cat: { itemId: {status, by, at} } }
+  const [items, setItems] = useState(DEFAULT_ITEMS);
+  const [flow, setFlow] = useState(DEFAULT_FLOW); // { ceremony, parents, managers }
   const [guests, setGuests] = useState([]);
   const [seating, setSeating] = useState(DEFAULT_SEATING);
   const [daysLeft, setDaysLeft] = useState(null);
@@ -26,9 +55,13 @@ export default function Home() {
   const guestsRef = useRef(guests);
   const seatingRef = useRef(seating);
   const statusRef = useRef(statusStore);
+  const itemsRef = useRef(items);
+  const flowRef = useRef(flow);
   guestsRef.current = guests;
   seatingRef.current = seating;
   statusRef.current = statusStore;
+  itemsRef.current = items;
+  flowRef.current = flow;
 
   const showToast = (msg) => {
     setToast(msg);
@@ -49,6 +82,26 @@ export default function Home() {
       })
     );
     setStatusStore(Object.fromEntries(entries));
+  };
+
+  const loadItems = async () => {
+    try {
+      const r = await fetch('/api/items');
+      const j = await r.json();
+      setItems(j.items || DEFAULT_ITEMS);
+    } catch {
+      /* keep current items on failure */
+    }
+  };
+
+  const loadFlow = async () => {
+    try {
+      const r = await fetch('/api/flow');
+      const j = await r.json();
+      setFlow(j.flow || DEFAULT_FLOW);
+    } catch {
+      /* keep current flow on failure */
+    }
   };
 
   const loadGuests = async () => {
@@ -123,14 +176,90 @@ export default function Home() {
     saveSeating(tables);
   };
 
+  const removeTable = (tableId) => {
+    const table = seatingRef.current.find((t) => t.id === tableId);
+    const tables = seatingRef.current.filter((t) => t.id !== tableId);
+    saveSeating(tables);
+    showToast(`已删除${table ? ' ' + table.label : ''}`);
+  };
+
+  const saveItems = async (next) => {
+    setItems(next);
+    try {
+      await fetch('/api/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: next }),
+      });
+    } catch {
+      showToast('同步失败，请检查网络');
+    }
+  };
+
+  const addItem = (cat, form) => {
+    const name = form.name.trim();
+    if (!name) {
+      showToast('请填写事项名称');
+      return;
+    }
+    const newItem = {
+      id: 'c' + Date.now() + Math.floor(Math.random() * 1000),
+      cat,
+      sub: form.sub.trim() || '其他',
+      name,
+      deadline: form.deadline.trim(),
+      priority: form.priority || '必要',
+      owner: form.owner.trim(),
+      status: 'todo',
+      note: form.note.trim(),
+    };
+    saveItems([...itemsRef.current, newItem]);
+    showToast('已添加，已同步给全家');
+  };
+
+  const deleteItem = (itemId) => {
+    saveItems(itemsRef.current.filter((i) => i.id !== itemId));
+    showToast('已删除');
+  };
+
+  const saveFlow = async (next) => {
+    setFlow(next);
+    try {
+      await fetch('/api/flow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ flow: next }),
+      });
+    } catch {
+      showToast('同步失败，请检查网络');
+    }
+  };
+
+  const addFlowEntry = (section, entry) => {
+    const withId = { ...entry, id: 'f' + Date.now() + Math.floor(Math.random() * 1000) };
+    const next = { ...flowRef.current, [section]: [...flowRef.current[section], withId] };
+    saveFlow(next);
+    showToast('已添加，已同步给全家');
+  };
+
+  const deleteFlowEntry = (section, id) => {
+    const next = { ...flowRef.current, [section]: flowRef.current[section].filter((e) => e.id !== id) };
+    saveFlow(next);
+    showToast('已删除');
+  };
+
   useEffect(() => {
     setDaysLeft(computeDaysLeft());
     loadAllStatus();
+    loadItems();
+    loadFlow();
     loadGuests();
     loadSeating();
     const cd = setInterval(() => setDaysLeft(computeDaysLeft()), 60000);
     const poll = setInterval(() => {
       loadAllStatus();
+      loadItems();
+      loadFlow();
       loadGuests();
       loadSeating();
     }, 6000);
@@ -144,14 +273,14 @@ export default function Home() {
   const effectiveBy = (item) => statusStore[item.cat]?.[item.id]?.by || null;
 
   const catStats = (cat) => {
-    const list = ITEMS.filter((i) => i.cat === cat);
+    const list = items.filter((i) => i.cat === cat);
     const done = list.filter((i) => effectiveStatus(i) === 'done').length;
     return { total: list.length, done, pct: list.length ? Math.round((done / list.length) * 100) : 0 };
   };
   const overall = useMemo(() => {
-    const done = ITEMS.filter((i) => effectiveStatus(i) === 'done').length;
-    return { total: ITEMS.length, done, pct: Math.round((done / ITEMS.length) * 100) };
-  }, [statusStore]);
+    const done = items.filter((i) => effectiveStatus(i) === 'done').length;
+    return { total: items.length, done, pct: items.length ? Math.round((done / items.length) * 100) : 0 };
+  }, [statusStore, items]);
 
   const cycleStatus = async (item) => {
     const cur = effectiveStatus(item);
@@ -272,6 +401,7 @@ export default function Home() {
 
         <section className={`screen ${screen === 'checklist' ? 'active' : ''}`}>
           <ChecklistScreen
+            items={items}
             currentCat={currentCat}
             setCurrentCat={setCurrentCat}
             currentOwner={currentOwner}
@@ -280,11 +410,19 @@ export default function Home() {
             effectiveStatus={effectiveStatus}
             effectiveBy={effectiveBy}
             cycleStatus={cycleStatus}
+            addItem={addItem}
+            deleteItem={deleteItem}
           />
         </section>
 
         <section className={`screen ${screen === 'flow' ? 'active' : ''}`}>
-          <FlowScreen flowTab={flowTab} setFlowTab={setFlowTab} />
+          <FlowScreen
+            flowTab={flowTab}
+            setFlowTab={setFlowTab}
+            flow={flow}
+            addFlowEntry={addFlowEntry}
+            deleteFlowEntry={deleteFlowEntry}
+          />
         </section>
 
         <section className={`screen ${screen === 'guests' ? 'active' : ''}`}>
@@ -297,6 +435,7 @@ export default function Home() {
             removeGuestFromTable={removeGuestFromTable}
             moveGuestToTable={moveGuestToTable}
             addTable={addTable}
+            removeTable={removeTable}
             assignPendingToTable={assignPendingToTable}
           />
         </section>
@@ -356,7 +495,7 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
 
       <div className="names-block">
         <img src="/logo-mark.png" alt="杨宇浩 & 王宁" className="brand-logo" />
-        <div className="lunar-line">农历 八月初二 · 周六 · 悉尼</div>
+        <div className="lunar-line">农历 八月初二 · 周六 · 济南</div>
       </div>
 
       <div className="countdown">
@@ -446,18 +585,23 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
 }
 
 /* ============================= CHECKLIST ============================= */
-function ChecklistScreen({ currentCat, setCurrentCat, currentOwner, setCurrentOwner, catStats, effectiveStatus, effectiveBy, cycleStatus }) {
+function ChecklistScreen({ items, currentCat, setCurrentCat, currentOwner, setCurrentOwner, catStats, effectiveStatus, effectiveBy, cycleStatus, addItem, deleteItem }) {
   const s = catStats(currentCat);
   const owners = useMemo(() => {
     const set = new Set();
-    ITEMS.filter((i) => i.cat === currentCat).forEach((i) => i.owner && set.add(i.owner));
+    items.filter((i) => i.cat === currentCat).forEach((i) => i.owner && set.add(i.owner));
     return Array.from(set);
-  }, [currentCat]);
+  }, [items, currentCat]);
 
-  let list = ITEMS.filter((i) => i.cat === currentCat);
+  let list = items.filter((i) => i.cat === currentCat);
   if (currentOwner !== 'all') list = list.filter((i) => i.owner === currentOwner);
   const subs = [];
   list.forEach((i) => { if (!subs.includes(i.sub)) subs.push(i.sub); });
+  const allSubs = useMemo(() => {
+    const set = new Set();
+    items.filter((i) => i.cat === currentCat).forEach((i) => i.sub && set.add(i.sub));
+    return Array.from(set);
+  }, [items, currentCat]);
 
   return (
     <>
@@ -497,24 +641,32 @@ function ChecklistScreen({ currentCat, setCurrentCat, currentOwner, setCurrentOw
           <div className="group-block" key={sub}>
             <div className="group-title">{sub}</div>
             {list.filter((i) => i.sub === sub).map((item) => (
-              <ItemRow key={item.id} item={item} status={effectiveStatus(item)} by={effectiveBy(item)} onClick={() => cycleStatus(item)} />
+              <ItemRow key={item.id} item={item} status={effectiveStatus(item)} by={effectiveBy(item)} onClick={() => cycleStatus(item)} onDelete={() => deleteItem(item.id)} />
             ))}
           </div>
         ))}
+        <div className="group-block">
+          <AddItemPanel cat={currentCat} subs={allSubs} onAdd={(form) => addItem(currentCat, form)} />
+        </div>
         <div style={{ height: 8 }} />
       </div>
     </>
   );
 }
 
-function ItemRow({ item, status, by, onClick }) {
+function ItemRow({ item, status, by, onClick, onDelete }) {
   return (
     <div className={`item-row ${status === 'done' ? 'done' : ''} ${status === 'doing' ? 'doing' : ''}`} onClick={onClick}>
       <div className="check-box">
         <svg viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.2 3.2L13 4.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </div>
       <div className="item-main">
-        <div className="item-name">{item.name}</div>
+        <div className="item-top-row">
+          <div className="item-name">{item.name}</div>
+          <button className="row-del" onClick={(e) => { e.stopPropagation(); onDelete(); }} aria-label="删除">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+          </button>
+        </div>
         <div className="item-meta">
           <span className={`tag pri-${item.priority}`}>{item.priority}</span>
           {item.deadline && <span className="tag deadline">{item.deadline}</span>}
@@ -529,12 +681,70 @@ function ItemRow({ item, status, by, onClick }) {
   );
 }
 
+function AddItemPanel({ cat, subs, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [sub, setSub] = useState('');
+  const [owner, setOwner] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [priority, setPriority] = useState('必要');
+  const [note, setNote] = useState('');
+
+  const reset = () => { setName(''); setSub(''); setOwner(''); setDeadline(''); setPriority('必要'); setNote(''); };
+
+  const submit = () => {
+    if (!name.trim()) return;
+    onAdd({ name, sub, owner, deadline, priority, note });
+    reset();
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <div className="add-entry-row" onClick={() => setOpen(true)}>
+        <span>+ 添加事项（{cat}）</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="add-entry-form">
+      <div className="gf-row">
+        <input placeholder="事项名称" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </div>
+      <div className="gf-row">
+        <input placeholder="分组（如：新郎，可自定义）" list="checklist-subs" value={sub} onChange={(e) => setSub(e.target.value)} />
+        <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+          <option value="必要">必要</option>
+          <option value="重要">重要</option>
+          <option value="非必要">非必要</option>
+        </select>
+      </div>
+      <datalist id="checklist-subs">
+        {subs.map((s) => <option key={s} value={s} />)}
+      </datalist>
+      <div className="gf-row">
+        <input placeholder="负责人（选填）" value={owner} onChange={(e) => setOwner(e.target.value)} />
+        <input placeholder="截止时间（选填）" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+      </div>
+      <div className="gf-row">
+        <input placeholder="备注（选填）" value={note} onChange={(e) => setNote(e.target.value)} />
+      </div>
+      <div className="gf-row gf-row-actions">
+        <button className="gf-cancel" onClick={() => { reset(); setOpen(false); }}>取消</button>
+        <button className="gf-submit" onClick={submit}>添加</button>
+      </div>
+    </div>
+  );
+}
+
 /* ============================= FLOW ============================= */
-function FlowScreen({ flowTab, setFlowTab }) {
-  const groups = [];
-  CEREMONY.forEach((c) => { if (!groups.includes(c.cat)) groups.push(c.cat); });
-  const roles = [];
-  PARENTS.forEach((p) => { if (!roles.includes(p.role)) roles.push(p.role); });
+function FlowScreen({ flowTab, setFlowTab, flow, addFlowEntry, deleteFlowEntry }) {
+  const { ceremony, parents, managers } = flow;
+  const ceremonyGroups = useMemo(() => groupSequential(ceremony, 'cat'), [ceremony]);
+  const parentGroups = useMemo(() => groupSequential(parents, 'role'), [parents]);
+  const ceremonyLabels = useMemo(() => Array.from(new Set(ceremony.map((c) => c.cat).filter(Boolean))), [ceremony]);
+  const parentRoles = useMemo(() => Array.from(new Set(parents.map((p) => p.role).filter(Boolean))), [parents]);
 
   return (
     <>
@@ -551,11 +761,14 @@ function FlowScreen({ flowTab, setFlowTab }) {
 
       <div className={`flow-panel ${flowTab === 'ceremony' ? 'active' : ''}`}>
         <div className="timeline">
-          {groups.map((g) => (
-            <div key={g}>
-              <div className="tl-group-label">{g}</div>
-              {CEREMONY.filter((c) => c.cat === g).map((c, i) => (
-                <div className="tl-item" key={i}>
+          {ceremonyGroups.map((g, gi) => (
+            <div key={gi}>
+              {g.label && <div className="tl-group-label">{g.label}</div>}
+              {g.items.map((c) => (
+                <div className="tl-item" key={c.id}>
+                  <button className="row-del tl-del" onClick={() => deleteFlowEntry('ceremony', c.id)} aria-label="删除">
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                  </button>
                   <div className="tl-name">{c.name}{c.dur && <span className="tl-dur">{c.dur}</span>}</div>
                   {c.desc && <div className="tl-desc">{c.desc}</div>}
                 </div>
@@ -563,42 +776,157 @@ function FlowScreen({ flowTab, setFlowTab }) {
             </div>
           ))}
         </div>
+        <AddCeremonyForm groups={ceremonyLabels} onAdd={(entry) => addFlowEntry('ceremony', entry)} />
       </div>
 
       <div className={`flow-panel ${flowTab === 'parents' ? 'active' : ''}`}>
         <div className="parent-cols">
-          {roles.map((role) => (
-            <div key={role}>
-              <div className="parent-col-title">{role}</div>
-              {PARENTS.filter((p) => p.role === role).map((s, idx) => (
-                <div className="p-step" key={idx}>
+          {parentGroups.map((g, gi) => (
+            <div key={gi}>
+              {g.label && <div className="parent-col-title">{g.label}</div>}
+              {g.items.map((s, idx) => (
+                <div className="p-step" key={s.id}>
                   <div className="p-step-num">{idx + 1}</div>
                   <div className="p-step-body">
-                    <b>{s.step}</b><span className="p-step-time">{s.time}</span>
-                    <div className="p-step-note">{s.note}</div>
+                    <div className="p-step-top">
+                      <div><b>{s.step}</b><span className="p-step-time">{s.time}</span></div>
+                      <button className="row-del" onClick={() => deleteFlowEntry('parents', s.id)} aria-label="删除">
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                      </button>
+                    </div>
+                    {s.note && <div className="p-step-note">{s.note}</div>}
                   </div>
                 </div>
               ))}
+              <AddParentStepForm role={g.label} onAdd={(entry) => addFlowEntry('parents', entry)} />
             </div>
           ))}
+          {!parentRoles.length && <AddParentStepForm role="" onAdd={(entry) => addFlowEntry('parents', entry)} />}
         </div>
       </div>
 
       <div className={`flow-panel ${flowTab === 'managers' ? 'active' : ''}`}>
-        {MANAGERS.map((m, i) => (
-          <div className="mgr-card" key={i}>
-            <div className="mgr-top"><span className="mgr-role">{m.role}</span><span className="mgr-num">建议 {m.num}</span></div>
+        {managers.map((m) => (
+          <div className="mgr-card" key={m.id}>
+            <div className="mgr-top">
+              <span className="mgr-role">{m.role}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="mgr-num">建议 {m.num}</span>
+                <button className="row-del" onClick={() => deleteFlowEntry('managers', m.id)} aria-label="删除">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                </button>
+              </div>
+            </div>
             <div className="mgr-time">执行时间：{m.time}</div>
             <div className="mgr-duty">{m.duty}</div>
           </div>
         ))}
+        <AddManagerForm onAdd={(entry) => addFlowEntry('managers', entry)} />
       </div>
     </>
   );
 }
 
+function AddCeremonyForm({ groups, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [dur, setDur] = useState('');
+  const [cat, setCat] = useState('');
+  const [desc, setDesc] = useState('');
+
+  const reset = () => { setName(''); setDur(''); setCat(''); setDesc(''); };
+  const submit = () => {
+    if (!name.trim()) return;
+    onAdd({ name: name.trim(), dur: dur.trim(), cat: cat.trim() || null, desc: desc.trim() });
+    reset();
+    setOpen(false);
+  };
+
+  if (!open) return <div className="add-entry-row" onClick={() => setOpen(true)}><span>+ 添加环节</span></div>;
+
+  return (
+    <div className="add-entry-form">
+      <div className="gf-row"><input placeholder="环节名称，如：起床" value={name} onChange={(e) => setName(e.target.value)} autoFocus /></div>
+      <div className="gf-row">
+        <input placeholder="时间，如：7:00 或 20分钟" value={dur} onChange={(e) => setDur(e.target.value)} />
+        <input placeholder="分组（选填，不填则接在上一条后面）" list="ceremony-groups" value={cat} onChange={(e) => setCat(e.target.value)} />
+      </div>
+      <datalist id="ceremony-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+      <div className="gf-row"><input placeholder="说明（选填）" value={desc} onChange={(e) => setDesc(e.target.value)} /></div>
+      <div className="gf-row gf-row-actions">
+        <button className="gf-cancel" onClick={() => { reset(); setOpen(false); }}>取消</button>
+        <button className="gf-submit" onClick={submit}>添加</button>
+      </div>
+    </div>
+  );
+}
+
+function AddParentStepForm({ role, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState('');
+  const [time, setTime] = useState('');
+  const [note, setNote] = useState('');
+
+  const reset = () => { setStep(''); setTime(''); setNote(''); };
+  const submit = () => {
+    if (!step.trim()) return;
+    onAdd({ role: role || null, step: step.trim(), time: time.trim(), note: note.trim() });
+    reset();
+    setOpen(false);
+  };
+
+  if (!open) return <div className="add-entry-row" onClick={() => setOpen(true)}><span>+ 添加步骤{role ? `（${role}）` : ''}</span></div>;
+
+  return (
+    <div className="add-entry-form">
+      <div className="gf-row">
+        <input placeholder="步骤，如：起床" value={step} onChange={(e) => setStep(e.target.value)} autoFocus />
+        <input placeholder="时间，如：7:00" value={time} onChange={(e) => setTime(e.target.value)} style={{ maxWidth: 100 }} />
+      </div>
+      <div className="gf-row"><input placeholder="备注（选填）" value={note} onChange={(e) => setNote(e.target.value)} /></div>
+      <div className="gf-row gf-row-actions">
+        <button className="gf-cancel" onClick={() => { reset(); setOpen(false); }}>取消</button>
+        <button className="gf-submit" onClick={submit}>添加</button>
+      </div>
+    </div>
+  );
+}
+
+function AddManagerForm({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [role, setRole] = useState('');
+  const [num, setNum] = useState('');
+  const [time, setTime] = useState('');
+  const [duty, setDuty] = useState('');
+
+  const reset = () => { setRole(''); setNum(''); setTime(''); setDuty(''); };
+  const submit = () => {
+    if (!role.trim()) return;
+    onAdd({ role: role.trim(), num: num.trim(), time: time.trim(), duty: duty.trim() });
+    reset();
+    setOpen(false);
+  };
+
+  if (!open) return <div className="add-entry-row" onClick={() => setOpen(true)}><span>+ 添加岗位</span></div>;
+
+  return (
+    <div className="add-entry-form">
+      <div className="gf-row">
+        <input placeholder="岗位名称，如：摄影统筹" value={role} onChange={(e) => setRole(e.target.value)} autoFocus />
+        <input placeholder="建议人数" value={num} onChange={(e) => setNum(e.target.value)} style={{ maxWidth: 90 }} />
+      </div>
+      <div className="gf-row"><input placeholder="执行时间" value={time} onChange={(e) => setTime(e.target.value)} /></div>
+      <div className="gf-row"><input placeholder="核心职责" value={duty} onChange={(e) => setDuty(e.target.value)} /></div>
+      <div className="gf-row gf-row-actions">
+        <button className="gf-cancel" onClick={() => { reset(); setOpen(false); }}>取消</button>
+        <button className="gf-submit" onClick={submit}>添加</button>
+      </div>
+    </div>
+  );
+}
+
 /* ============================= GUESTS ============================= */
-function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable, assignPendingToTable }) {
+function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable, removeGuestFromTable, moveGuestToTable, addTable, removeTable, assignPendingToTable }) {
   const [tab, setTab] = useState('seating');
   const [name, setName] = useState('');
   const [side, setSide] = useState('bride');
@@ -715,6 +1043,7 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
                 onAddGuest={(name) => addGuestToTable(t.id, name)}
                 onRemoveGuest={(idx) => removeGuestFromTable(t.id, idx)}
                 onMoveGuest={(idx, toId) => moveGuestToTable(t.id, idx, toId)}
+                onRemoveTable={() => removeTable(t.id)}
               />
             ))}
           </div>
@@ -732,7 +1061,7 @@ function GuestsScreen({ guests, addGuest, deleteGuest, seating, addGuestToTable,
   );
 }
 
-function TableCard({ table, allTables, onAddGuest, onRemoveGuest, onMoveGuest }) {
+function TableCard({ table, allTables, onAddGuest, onRemoveGuest, onMoveGuest, onRemoveTable }) {
   const [openIdx, setOpenIdx] = useState(null);
   const [newName, setNewName] = useState('');
 
@@ -745,7 +1074,12 @@ function TableCard({ table, allTables, onAddGuest, onRemoveGuest, onMoveGuest })
     <div className="table-card">
       <div className="table-card-top">
         <span className="table-name">{table.label}</span>
-        <span className="table-cap">{table.capacity ? `${table.capacity} · ` : ''}{table.guests.length} 人</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="table-cap">{table.capacity ? `${table.capacity} · ` : ''}{table.guests.length} 人</span>
+          <button className="row-del" onClick={onRemoveTable} aria-label="删除整桌">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+          </button>
+        </div>
       </div>
       <div className="table-guests">
         {table.guests.map((g, i) => (
