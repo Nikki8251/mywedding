@@ -578,8 +578,6 @@ function HomeScreen({ overall, catStats, guests, currentUser, setCurrentUser, da
           <div className="qc-sub">{guests.length ? `待定 ${totalGuestPeople} 人` : '桌位安排 · 待定名单'}</div>
         </div>
       </div>
-
-      <div className="home-foot">全家人共用一份清单 · 谁勾选了都会同步给大家<br />点击底部导航切换页面</div>
     </>
   );
 }
@@ -750,7 +748,6 @@ function FlowScreen({ flowTab, setFlowTab, flow, addFlowEntry, deleteFlowEntry }
     <>
       <div className="topbar">
         <h1>流程手册</h1>
-        <div className="sub">婚礼当天怎么走，一目了然</div>
       </div>
 
       <div className="flow-tabs">
