@@ -1,4 +1,3 @@
-
 // EdgeOne Makers Node.js Cloud Function
 // Deployed URL: /api/items  (mirrors the old Next.js pages/api/items.js,
 // which EdgeOne was not picking up — see cloud-functions/api/flow.js too)
@@ -84,11 +83,29 @@ export async function onRequestGet(context) {
     }
     return json({ debug });
   }
+  if (url.searchParams.get('debug') === '3') {
+    const marker = await kvGet(context.env, 'wedding-post-debug');
+    return json({ postMarker: marker || null });
+  }
   const items = (await kvGet(context.env, KEY)) || DEFAULT_ITEMS;
   return json({ items });
 }
  
 export async function onRequestPost(context) {
+  // Unconditional marker write, best-effort, so we can tell from a GET
+  // (?debug=3) whether a real POST from the app ever reached this
+  // function at all, independent of whether the rest of the logic below
+  // succeeds or throws.
+  try {
+    const rawBody = await context.request.clone().text();
+    await kvSet(context.env, 'wedding-post-debug', {
+      at: new Date().toISOString(),
+      bodyPreview: rawBody.slice(0, 200),
+    });
+  } catch (e) {
+    // ignore - this is best-effort diagnostics only
+  }
+ 
   try {
     const body = await context.request.json();
     const items = body && body.items;
@@ -99,6 +116,7 @@ export async function onRequestPost(context) {
     if (!ok) return json({ error: 'save failed' }, 500);
     return json({ ok: true });
   } catch (e) {
-    return json({ error: 'save failed' }, 500);
+    return json({ error: 'save failed', detail: String(e && e.message || e) }, 500);
   }
 }
+ 
