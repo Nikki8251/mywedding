@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>POST 诊断测试</title>
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 20px; font-size: 16px; word-break: break-all; }
+  button { font-size: 18px; padding: 12px 20px; margin: 8px 0; width: 100%; }
+  pre { background: #f0f0f0; padding: 12px; white-space: pre-wrap; border-radius: 6px; }
+  .ok { color: green; }
+  .bad { color: red; }
+</style>
+</head>
+<body>
+  <h2>POST 请求诊断</h2>
+  <button onclick="runTest()">点这里测试保存请求</button>
+  <div id="out"><p>还没测试</p></div>
+
+<script>
+async function runTest() {
+  const out = document.getElementById('out');
+  out.innerHTML = '<p>请求发送中...</p>';
+  const startedAt = new Date().toISOString();
+  let log = 'Started at: ' + startedAt + '\n';
+  log += 'Location: ' + window.location.href + '\n\n';
+
+  try {
+    const res = await fetch('/api/items?testpost=1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: [] , __diag: true}),
+    });
+    log += 'fetch() completed without throwing.\n';
+    log += 'status: ' + res.status + '\n';
+    log += 'ok: ' + res.ok + '\n';
+    log += 'type: ' + res.type + '\n';
+    log += 'redirected: ' + res.redirected + '\n';
+    log += 'url: ' + res.url + '\n';
+    let headersStr = '';
+    res.headers.forEach((v, k) => { headersStr += k + ': ' + v + '\n'; });
+    log += 'response headers:\n' + headersStr + '\n';
+    const text = await res.text();
+    log += 'response body:\n' + text;
+    out.innerHTML = '<p class="' + (res.ok ? 'ok' : 'bad') + '">请求完成，看下面详情</p><pre>' + log.replace(/</g,'&lt;') + '</pre>';
+  } catch (e) {
+    log += 'fetch() THREW an error (this is the network-level failure case):\n';
+    log += 'name: ' + e.name + '\n';
+    log += 'message: ' + e.message + '\n';
+    log += 'stack: ' + (e.stack || '(no stack)');
+    out.innerHTML = '<p class="bad">请求失败（浏览器报错）</p><pre>' + log.replace(/</g,'&lt;') + '</pre>';
+  }
+}
+</script>
+</body>
+</html>
