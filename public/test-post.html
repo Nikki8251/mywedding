@@ -16,7 +16,7 @@
   <h2>POST 请求诊断</h2>
   <button onclick="runTest()">点这里测试保存请求</button>
   <div id="out"><p>还没测试</p></div>
-
+ 
 <script>
 async function runTest() {
   const out = document.getElementById('out');
@@ -24,12 +24,17 @@ async function runTest() {
   const startedAt = new Date().toISOString();
   let log = 'Started at: ' + startedAt + '\n';
   log += 'Location: ' + window.location.href + '\n\n';
-
+ 
   try {
-    const res = await fetch('/api/items?testpost=1', {
+    // IMPORTANT: this must NOT be a real /api/items or /api/flow POST —
+    // an earlier version of this test posted { items: [] } to the real
+    // checklist endpoint and wiped the saved data. Use a harmless
+    // dedicated debug key instead (via the flow endpoint's debug mode)
+    // so this test can never touch real app data again.
+    const res = await fetch('/api/items?debug=3&write=1&t=' + Date.now(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: [] , __diag: true}),
+      body: JSON.stringify({ __diagOnly: true }),
     });
     log += 'fetch() completed without throwing.\n';
     log += 'status: ' + res.status + '\n';
@@ -54,3 +59,4 @@ async function runTest() {
 </script>
 </body>
 </html>
+ 
