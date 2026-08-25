@@ -106,6 +106,14 @@ export async function onRequestPost(context) {
     // ignore - this is best-effort diagnostics only
   }
  
+  // Diagnostic-only requests (from test-post.html) must NEVER touch the
+  // real checklist data - this guard is what makes that safe regardless
+  // of what body the test page sends.
+  const reqUrl = new URL(context.request.url);
+  if (reqUrl.searchParams.get('debug') === '3') {
+    return json({ ok: true, diagOnly: true });
+  }
+ 
   try {
     const body = await context.request.json();
     const items = body && body.items;
